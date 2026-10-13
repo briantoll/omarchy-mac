@@ -39,13 +39,20 @@ Item {
   property bool strandedLock: false
   property bool strandedLockResolved: false
 
-  readonly property bool locked: lockRequested || sessionLock.locked || sessionLock.secure
+  // Whether this plugin has asked the compositor for the session lock. Kept
+  // here rather than read back from sessionLock.locked: WlSessionLock has
+  // changed that value on unlock without emitting its change signal, which
+  // left a binding on it true for a whole day -- every lock request was then
+  // a no-op (lid closes suspended unlocked, the idle lock never engaged) and
+  // the idle plugin skipped the screensaver because isLocked said true.
+  property bool sessionLockHeld: false
+  readonly property bool locked: lockRequested || sessionLockHeld || sessionLock.secure
 
   // Decisions read the lock state afresh. A property binding that missed a change
   // notification once reported locked after an unlock, and a lock request before
   // suspend then took that for done and never locked the session.
   function currentlyLocked() {
-    return lockRequested || sessionLock.locked || sessionLock.secure
+    return lockRequested || sessionLockHeld || sessionLock.secure
   }
   readonly property bool authenticating: authenticatingPassword || fingerprintAuthenticating
 
@@ -85,6 +92,7 @@ Item {
 
     pendingSessionLock = false
     pendingSessionLockTimer.stop()
+    sessionLockHeld = true
     sessionLock.locked = true
   }
 
@@ -166,6 +174,7 @@ Item {
     pendingSessionLockTimer.stop()
     resetAuthenticationState()
     idleBlankTimer.stop()
+    sessionLockHeld = false
     sessionLock.locked = false
     logEvent("unlocked")
     runWake()
@@ -257,6 +266,7 @@ Item {
 
     onLockStateChanged: {
       root.logEvent("session-locked=" + locked)
+      root.sessionLockHeld = locked
 
       if (locked) {
         root.pendingSessionLock = false
@@ -542,6 +552,7 @@ Item {
         requested: root.lockRequested,
         pending: root.pendingSessionLock,
         sessionLocked: sessionLock.locked,
+        held: root.sessionLockHeld,
         secure: sessionLock.secure,
         realScreens: root.realScreenCount(),
         passwordPam: root.passwordPamConfigured,
